@@ -12,13 +12,18 @@ function bd_head(db, num) {
 function get_camelcase(name) {
     const split_name = name.split(" ");
     console.log(split_name);
-    for(let i = 0; i < split_name.length; i++) {
-        console.log(split_name[i]);
+    let camel = split_name[0];
+    for(let i = 1; i < split_name.length; i++) {
+        let word = split_name[i][0].toUpperCase() + split_name[i].slice(1);
+        camel += word;
     }
+
+    return camel;
 }
 
 app.get("/schema", (req, res) => {
-    get_camelcase("hello there buddy");
+    console.log(get_camelcase("hello there buddy"));
+    res.send("Hello");
     // request("https://app-media.noloco.app/noloco/dublin-bikes.json", (error, response, body) => {
     //     if (!error && response.statusCode === 200) {
     //         let data = JSON.parse(body);
