@@ -10,7 +10,6 @@ function db_head(db, num) {
     }
 }
 
-
 // convert arbitrary string to camelcase
 function get_camelcase(name) {
     // regex weird stuff
@@ -57,9 +56,9 @@ function create_schema() {
             let data = JSON.parse(body);
             // let row = data[0];
 
-            // option map
+            // option map, this is kind of a frequency counter for the values different fields take in our dataset
             option_map = {};
-            
+            // name map, maps display to camelcase names
             name_map = {};
 
             for(row of data) {
@@ -82,6 +81,7 @@ function create_schema() {
                         continue;
                     }
                     
+
                     else if(isDate(val)) {
                         type_map[name] = "DATE";                    
                     }
@@ -92,15 +92,16 @@ function create_schema() {
                     
                     else if(typeof(val) === "number" || !isNaN(val)) {
                         let new_val = val;
+                        // convert string values here, mainly to check if float or integer
                         if(!isNaN(val) && typeof(val) === "string") {
                             new_val = +val;
                         }
 
+                        // how to distinguish between integers and floats? well the former does 
+                        // not differ from its original value if ceil or floor applied
                         if(Math.floor(new_val) === new_val) {
                             type_map[name] = "INTEGER";
-                        }
-
-                        else {
+                        } else {
                             type_map[name] = "FLOAT";
                         }
 
@@ -119,30 +120,34 @@ function create_schema() {
                    
         }
 
-        
-        
-        
-
         let schema_lst = [];
         for(const [disp_name, name] of Object.entries(name_map)) {
 
+            let opts = [];
+            let type_ = type_map[name];
             check_opt = option_map[name];
-            for(const [vals, freqs] of Object.entries(check_opt)) {
-                
+            if(type_map[name] === "TEXT") {
+                // hyperparameter we can tune, we basically see how spread out the values are
+                // if they are super spread out, then we know it is likely not to be an option!
+                param = 5;
+                if(Object.keys(check_opt).length <= param) {
+                    opts = Object.keys(check_opt);
+                    type_ = "OPTION";
+                }
             }
 
             let obj_schema = {
                 "display": disp_name,
                 "name" : name,
-                "type" : type_map[name],
-                "options" : [] 
+                "type" : type_,
+                "options" : opts
             };
 
             schema_lst.push(obj_schema);
-
+            
         }
-
-        resolve(schema_lst);
+        // return a bunch of stuff for good measure
+        resolve([schema_lst, name_map, type_map]);
         
     });});
         
@@ -151,10 +156,33 @@ function create_schema() {
 
 app.get("/schema", (req, res) => {
     create_schema().then((result) => {
-        res.send(result);
+        res.send(result[0]);
     });
 })
 
+
+// normalise poorly formatted data to appropriate values
+function normalise(datapoint, real_type) {
+    if(typeof(datapoint) !== real_type) {
+        if(real_type === "FLOAT" || real_type === "INTEGER") {
+            // convert to number as only case where two would differ is if it consists of text
+            return +datapoint
+        }
+
+        else if(real_type === "BOOLEAN") {
+            // if we are given a number, ie 1 or 0 instead of t/f, then we can
+            // simply convert it:
+            if(typeof(datapoint) === "number") {
+                return datapoint > 0 ? 1 : 0;
+            } else {
+                // use JS weird quirks to check
+                return real_type.toLowerCase()  === true;
+            }
+        } 
+    }
+
+    return datapoint;
+}
 
 function get_dataset() {
     return new Promise( (resolve, reject) => {
@@ -167,75 +195,6 @@ function get_dataset() {
 }
 
 app.post("/data", (req, res) => {
-
-    // conditional object, ie where clause
-    get_dataset().then(dset => {
-        const cond_obj = req["where"];
-        create_schema().then(res_schema => {
-            let schema = res_schema;
-        // we want to iterate over each query
-        for(const [col, filter_clause] of Object.entries(cond_obj)) {
-            // and pick out which name we're querying/talking about, ie the display name corresponding to the standardised name
-            let disp = "";
-            for(el of schema) {
-                if(el.name === col) {
-                    disp = el.display;
-                }
-            }
-
-            filtered_lst = [];
-
-            // and then we want to pick out all the entries that satisfy filter_clause
-            for(entry of dset) {
-                let op_map = {
-                    "gt" : (col_name, val_cmp) => {
-                        if(entry[col_name] > val_cmp) {
-                            return true;
-                        }},
-                    
-                    "eq" : (col_name, val_cmp) => {
-                        if(entry[col_name] === val_cmp) {
-                            return true;
-                        }}, 
-                    
-                    "lt" : (col_name, val_cmp) => {
-                        if(entry[col_name] < val_cmp) {
-                            return true;
-                        }}
-                };
-
-                let op = Object.keys(filter_clause)[0]; 
-                // console.log(filter_clause);
-                let val = filter_clause[op]; 
-                let afunc = op_map[op];
-
-                if(afunc(disp, val)) {
-                    filtered_lst.push(entry);
-                }
-
-            }
-
-            res.send(filtered_lst);
-
-        }
- });
- });
-
-});
-
-app.listen(port, () => {
-    // console.log("Server running on port: ", port);
-
-        let req = {
-            "where" : {"bonus" : {"eq" : true}, 
-                    "availableBikes" : {"gt" : 23},
-                    "stationId" : {"eq" : 98}
-        },
-            "orderby" : {"availableBikes" : "desc"},
-
-            "head" : 2
-        };
-
      // conditional object, ie where clause
      get_dataset().then(dset => {
         const cond_obj = req["where"];
@@ -245,9 +204,9 @@ app.listen(port, () => {
         let type_ordering = "";
         let order_disp = "";
 
-        if("orderby" in req) {
+        if("orderBy" in req) {
             must_order = true;
-            ordering = req["orderby"];
+            ordering = req["orderBy"];
             col_name_order = Object.keys(ordering)[0];
             type_ordering = ordering[col_name_order];
         }
@@ -255,7 +214,9 @@ app.listen(port, () => {
         filtered_lst = [];
 
         create_schema().then(res => {
-            let schema = res;
+            let schema = res[0];
+            let name_map = res[1];
+            let type_map = res[2];
          // we want to iterate over each entry
          for(entry of dset) {
             // and then each query
@@ -276,6 +237,7 @@ app.listen(port, () => {
                     }
                 }
 
+                // use function map instead of if-else statements, cleaner
                 let op_map = {
                     "gt" : (col_name, val_cmp) => {
                         if(entry[col_name] > val_cmp) {
@@ -292,26 +254,38 @@ app.listen(port, () => {
                             return true;
                         } return false; }
                 };
+                
+                let op = Object.keys(filter_clause)[0];
+                
+                let val = filter_clause[op];
 
-                let op = Object.keys(filter_clause)[0]; 
-                let val = filter_clause[op]; 
-                let afunc = op_map[op];
-                // call function and push if it meets criterion
-                bval *= afunc(disp, val);
-                // if(afunc(disp, val)) {
-                //     filtered_lst.push(entry);
-                // }
+                let afunc = op_map[op.split(" ").at(-1)];
+                
+                let cond_eval =  afunc(disp, val);
+                                
+                if(op.split(" ").length > 1) {
+                    // then we assume command is "not",
+                    // so we not our previously computed boolean value
+                    cond_eval = !cond_eval;
+                }
+                
+                // cumulative product is practically repeated AND statements, one zero and the whole thing is rendered invalid, which
+                // is what we want!
+                bval *= cond_eval;
 
-            }
-
-            if(bval) {
-                filtered_lst.push(entry);
             }
             
-        
+            if(bval) {
+                std_entry = {};
+                for(const [key, val] of Object.entries(entry)) {
+                  std_entry[name_map[key]] = normalise(val, type_map[name_map[key]]);  
+                } 
+                filtered_lst.push(std_entry);
+            }
+            
         }
 
-
+        
          if(must_order) {
             filtered_lst.sort((a, b) => {
                 let factor = type_ordering === "asc" ? 1 : -1;
@@ -320,14 +294,139 @@ app.listen(port, () => {
         }  
         
         if("head" in req) {
-            
-            console.log(filtered_lst.slice(0,req["head"]));
-            
+            res.send(filtered_lst.slice(0,req["head"]));
+        } else {
+            res.send(filtered_lst);
         }
-
 
      });
      });
 
 
 });
+
+
+
+app.listen(port, () => {
+    console.log("Server running on port: ", port);
+});
+//         let req = {
+//             "where" : {"bonus" : {"eq" : true}, 
+//                     "availableBikes" : {"gt" : 23},
+//                     "stationId" : {"not eq" : 98}
+//                     },
+//             "orderBy" : {"availableBikes" : "desc"}
+
+//             // "head" : 2
+//         };
+
+
+//      // conditional object, ie where clause
+//      get_dataset().then(dset => {
+//         const cond_obj = req["where"];
+//         let must_order = false;
+//         let ordering = "";
+//         let col_name_order = "";
+//         let type_ordering = "";
+//         let order_disp = "";
+
+//         if("orderBy" in req) {
+//             must_order = true;
+//             ordering = req["orderBy"];
+//             col_name_order = Object.keys(ordering)[0];
+//             type_ordering = ordering[col_name_order];
+//         }
+
+//         filtered_lst = [];
+
+//         create_schema().then(res => {
+//             let schema = res[0];
+//             let name_map = res[1];
+//             let type_map = res[2];
+//          // we want to iterate over each entry
+//          for(entry of dset) {
+//             // and then each query
+//             let bval = 1;
+//             for(const [col, filter_clause] of Object.entries(cond_obj)) {
+//                 // and pick out which name we're querying/talking about, ie the display name corresponding to the standardised name
+//                 let disp = "";
+                
+//                 for(el of schema) {
+//                     if(el.name === col) {
+//                         disp = el.display;
+//                     }
+
+//                     if(must_order) {
+//                         if(el.name === col_name_order) {
+//                             order_disp = el.display;
+//                         }
+//                     }
+//                 }
+
+//                 let op_map = {
+//                     "gt" : (col_name, val_cmp) => {
+//                         if(entry[col_name] > val_cmp) {
+//                             return true;
+//                         } return false; },
+                    
+//                     "eq" : (col_name, val_cmp) => {
+//                         if(entry[col_name] === val_cmp) {
+//                             return true;
+//                         } return false;}, 
+                    
+//                     "lt" : (col_name, val_cmp) => {
+//                         if(entry[col_name] < val_cmp) {
+//                             return true;
+//                         } return false; }
+//                 };
+                
+//                 let op = Object.keys(filter_clause)[0];
+                
+//                 let val = filter_clause[op];
+
+//                 let afunc = op_map[op.split(" ").at(-1)];
+                
+//                 let cond_eval =  afunc(disp, val);
+                
+//                 // console.log(op.split(" "));
+
+//                 if(op.split(" ").length > 1) {
+//                     // then we assume command is "not"
+//                     cond_eval = !cond_eval;
+//                 }
+                
+//                 // call function and push if it meets criterion
+//                 bval *= cond_eval;
+
+//             }
+            
+//             if(bval) {
+//                 std_entry = {};
+//                 for(const [key, val] of Object.entries(entry)) {
+//                   std_entry[name_map[key]] = normalise(val, type_map[name_map[key]]);  
+//                 } 
+//                 filtered_lst.push(std_entry);
+//             }
+            
+//         }
+
+        
+//          if(must_order) {
+//             filtered_lst.sort((a, b) => {
+//                 let factor = type_ordering === "asc" ? 1 : -1;
+//                 return factor * (a[order_disp] - b[order_disp]);
+//             });
+//         }  
+        
+//         if("head" in req) {
+//             console.log(filtered_lst.slice(0,req["head"]));
+//         } else {
+//             console.log(filtered_lst);
+//         }
+
+
+//      });
+//      });
+
+
+// });
