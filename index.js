@@ -193,9 +193,142 @@ function get_dataset() {
     });
 }
 
-app.post("/data", (req, res) => {
-     // conditional object, ie where clause
-     get_dataset().then(dset => {
+app.post("/data", (request, response) => {
+    // console.log("Server running on port: ", port);
+// });
+
+// conditional object, ie where clause
+get_dataset().then(dset => {
+    let req = request["body"];
+const cond_obj = req["where"];
+let must_order = false;
+let ordering = "";
+let col_name_order = "";
+let type_ordering = "";
+let order_disp = "";
+
+if("orderBy" in req) {
+    must_order = true;
+    ordering = req["orderBy"];
+    col_name_order = Object.keys(ordering)[0];
+    type_ordering = ordering[col_name_order];
+}
+
+filtered_lst = [];
+
+create_schema().then(res => {
+    let schema = res[0];
+    let name_map = res[1];
+    let type_map = res[2];
+ // we want to iterate over each entry
+ for(entry of dset) {
+    // and then each query
+    let bval = 1;
+    for(const [col, filter_clause] of Object.entries(cond_obj)) {
+        // and pick out which name we're querying/talking about, ie the display name corresponding to the standardised name
+        let disp = "";
+        
+        for(el of schema) {
+            // console.log(el);
+            if(el.name === col) {
+                disp = el.display;
+            }
+
+            if(must_order) {
+                if(el.name === col_name_order) {
+                    order_disp = el.display;
+                    // console.log(order_disp);
+                }
+            }
+        }
+
+        let op_map = {
+            "gt" : (col_name, val_cmp) => {
+                if(entry[col_name] > val_cmp) {
+                    return true;
+                } return false; },
+            
+            "eq" : (col_name, val_cmp) => {
+                if(entry[col_name] === val_cmp) {
+                    return true;
+                } return false;}, 
+            
+            "lt" : (col_name, val_cmp) => {
+                if(entry[col_name] < val_cmp) {
+                    return true;
+                } return false; }
+        };
+        
+        let op = Object.keys(filter_clause)[0];
+        
+        let val = filter_clause[op];
+
+        let afunc = op_map[op.split(" ").at(-1)];
+        
+        let cond_eval =  afunc(disp, val);
+        
+        // console.log(op.split(" "));
+
+        if(op.split(" ").length > 1) {
+            // then we assume command is "not"
+            cond_eval = !cond_eval;
+        }
+        
+        // call function and push if it meets criterion
+        bval *= cond_eval;
+
+    }
+    
+    if(bval) {
+        std_entry = {};
+        for(const [key, val] of Object.entries(entry)) {
+          std_entry[name_map[key]] = normalise(val, type_map[name_map[key]]);  
+        } 
+        filtered_lst.push(std_entry);
+    }
+    
+}
+
+
+ if(must_order) {
+    filtered_lst.sort((a, b) => {
+        let factor = type_ordering === "asc" ? 1 : -1;
+        return factor * (a[col_name_order] - b[col_name_order]);
+    });
+}  
+
+if("head" in req) {
+    response.send(filtered_lst.slice(0,req["head"]));
+} else {
+    response.send(filtered_lst);
+}
+
+
+});
+});
+
+
+});
+
+
+
+app.listen(port, () => {
+    // console.log("Server running on port: ", port);
+// });
+        let request = {
+            "body" : {
+            "where" : {"bonus" : {"eq" : true}, 
+                    "availableBikes" : {"gt" : 23},
+                    "stationId" : {"not eq" : 98}
+                    },
+            "orderBy" : {"availableBikes" : "desc"},
+
+            "head" : 3
+        }};
+
+        // conditional object, ie where clause
+        get_dataset().then(dset => {
+            let req = request["body"];
         const cond_obj = req["where"];
         let must_order = false;
         let ordering = "";
@@ -225,6 +358,7 @@ app.post("/data", (req, res) => {
                 let disp = "";
                 
                 for(el of schema) {
+                    // console.log(el);
                     if(el.name === col) {
                         disp = el.display;
                     }
@@ -232,11 +366,11 @@ app.post("/data", (req, res) => {
                     if(must_order) {
                         if(el.name === col_name_order) {
                             order_disp = el.display;
+                            // console.log(order_disp);
                         }
                     }
                 }
 
-                // use function map instead of if-else statements, cleaner
                 let op_map = {
                     "gt" : (col_name, val_cmp) => {
                         if(entry[col_name] > val_cmp) {
@@ -261,15 +395,15 @@ app.post("/data", (req, res) => {
                 let afunc = op_map[op.split(" ").at(-1)];
                 
                 let cond_eval =  afunc(disp, val);
-                                
+                
+                // console.log(op.split(" "));
+
                 if(op.split(" ").length > 1) {
-                    // then we assume command is "not",
-                    // so we not our previously computed boolean value
+                    // then we assume command is "not"
                     cond_eval = !cond_eval;
                 }
                 
-                // cumulative product is practically repeated AND statements, one zero and the whole thing is rendered invalid, which
-                // is what we want!
+                // call function and push if it meets criterion
                 bval *= cond_eval;
 
             }
@@ -288,144 +422,19 @@ app.post("/data", (req, res) => {
          if(must_order) {
             filtered_lst.sort((a, b) => {
                 let factor = type_ordering === "asc" ? 1 : -1;
-                return factor * (a[order_disp] - b[order_disp]);
+                return factor * (a[col_name_order] - b[col_name_order]);
             });
         }  
         
         if("head" in req) {
-            res.send(filtered_lst.slice(0,req["head"]));
+            console.log(filtered_lst.slice(0,req["head"]));
         } else {
-            res.send(filtered_lst);
+            console.log(filtered_lst);
         }
 
+
      });
      });
 
 
 });
-
-
-
-app.listen(port, () => {
-    console.log("Server running on port: ", port);
-});
-//         let req = {
-//             "where" : {"bonus" : {"eq" : true}, 
-//                     "availableBikes" : {"gt" : 23},
-//                     "stationId" : {"not eq" : 98}
-//                     },
-//             "orderBy" : {"availableBikes" : "desc"}
-
-//             // "head" : 2
-//         };
-
-
-//      // conditional object, ie where clause
-//      get_dataset().then(dset => {
-//         const cond_obj = req["where"];
-//         let must_order = false;
-//         let ordering = "";
-//         let col_name_order = "";
-//         let type_ordering = "";
-//         let order_disp = "";
-
-//         if("orderBy" in req) {
-//             must_order = true;
-//             ordering = req["orderBy"];
-//             col_name_order = Object.keys(ordering)[0];
-//             type_ordering = ordering[col_name_order];
-//         }
-
-//         filtered_lst = [];
-
-//         create_schema().then(res => {
-//             let schema = res[0];
-//             let name_map = res[1];
-//             let type_map = res[2];
-//          // we want to iterate over each entry
-//          for(entry of dset) {
-//             // and then each query
-//             let bval = 1;
-//             for(const [col, filter_clause] of Object.entries(cond_obj)) {
-//                 // and pick out which name we're querying/talking about, ie the display name corresponding to the standardised name
-//                 let disp = "";
-                
-//                 for(el of schema) {
-//                     if(el.name === col) {
-//                         disp = el.display;
-//                     }
-
-//                     if(must_order) {
-//                         if(el.name === col_name_order) {
-//                             order_disp = el.display;
-//                         }
-//                     }
-//                 }
-
-//                 let op_map = {
-//                     "gt" : (col_name, val_cmp) => {
-//                         if(entry[col_name] > val_cmp) {
-//                             return true;
-//                         } return false; },
-                    
-//                     "eq" : (col_name, val_cmp) => {
-//                         if(entry[col_name] === val_cmp) {
-//                             return true;
-//                         } return false;}, 
-                    
-//                     "lt" : (col_name, val_cmp) => {
-//                         if(entry[col_name] < val_cmp) {
-//                             return true;
-//                         } return false; }
-//                 };
-                
-//                 let op = Object.keys(filter_clause)[0];
-                
-//                 let val = filter_clause[op];
-
-//                 let afunc = op_map[op.split(" ").at(-1)];
-                
-//                 let cond_eval =  afunc(disp, val);
-                
-//                 // console.log(op.split(" "));
-
-//                 if(op.split(" ").length > 1) {
-//                     // then we assume command is "not"
-//                     cond_eval = !cond_eval;
-//                 }
-                
-//                 // call function and push if it meets criterion
-//                 bval *= cond_eval;
-
-//             }
-            
-//             if(bval) {
-//                 std_entry = {};
-//                 for(const [key, val] of Object.entries(entry)) {
-//                   std_entry[name_map[key]] = normalise(val, type_map[name_map[key]]);  
-//                 } 
-//                 filtered_lst.push(std_entry);
-//             }
-            
-//         }
-
-        
-//          if(must_order) {
-//             filtered_lst.sort((a, b) => {
-//                 let factor = type_ordering === "asc" ? 1 : -1;
-//                 return factor * (a[order_disp] - b[order_disp]);
-//             });
-//         }  
-        
-//         if("head" in req) {
-//             console.log(filtered_lst.slice(0,req["head"]));
-//         } else {
-//             console.log(filtered_lst);
-//         }
-
-
-//      });
-//      });
-
-
-// });
