@@ -157,12 +157,25 @@ app.get("/schema", (req, res) => {
     create_schema().then((result) => {
         res.send(result[0]);
     });
-})
+});
 
 
 // normalise poorly formatted data to appropriate values
 function normalise(datapoint, real_type) {
-    if(typeof(datapoint) !== real_type) {
+
+    let type_mapping_norm = {
+        "DATE" : "string",
+        "INTEGER" : "number",
+        "BOOLEAN" : "boolean",
+        "TEXT" : "string",
+        "FLOAT" : "number",
+
+    }
+
+    if(typeof(datapoint) !== type_mapping_norm[real_type]) {
+
+        // console.log(typeof(datapoint), real_type, datapoint);
+
         if(real_type === "FLOAT" || real_type === "INTEGER") {
             // convert to number as only case where two would differ is if it consists of text
             return +datapoint
@@ -193,248 +206,144 @@ function get_dataset() {
     });
 }
 
-app.post("/data", (request, response) => {
-    // console.log("Server running on port: ", port);
-// });
 
-// conditional object, ie where clause
-get_dataset().then(dset => {
-    let req = request["body"];
-const cond_obj = req["where"];
-let must_order = false;
-let ordering = "";
-let col_name_order = "";
-let type_ordering = "";
-let order_disp = "";
+function query_dataset(req) {
+      // conditional object, ie where clause
+    return new Promise ((resolve, reject) => {
+    get_dataset().then(dset => {
+    const cond_obj = req["where"];
+    let must_order = false;
+    let ordering = "";
+    let col_name_order = "";
+    let type_ordering = "";
+    let order_disp = "";
 
-if("orderBy" in req) {
-    must_order = true;
-    ordering = req["orderBy"];
-    col_name_order = Object.keys(ordering)[0];
-    type_ordering = ordering[col_name_order];
-}
+    if("orderBy" in req) {
+        must_order = true;
+        ordering = req["orderBy"];
+        col_name_order = Object.keys(ordering)[0];
+        type_ordering = ordering[col_name_order];
+    }
 
-filtered_lst = [];
+    filtered_lst = [];
 
-create_schema().then(res => {
-    let schema = res[0];
-    let name_map = res[1];
-    let type_map = res[2];
- // we want to iterate over each entry
- for(entry of dset) {
-    // and then each query
-    let bval = 1;
-    for(const [col, filter_clause] of Object.entries(cond_obj)) {
-        // and pick out which name we're querying/talking about, ie the display name corresponding to the standardised name
-        let disp = "";
-        
-        for(el of schema) {
-            // console.log(el);
-            if(el.name === col) {
-                disp = el.display;
-            }
+    create_schema().then(res => {
+        let schema = res[0];
+        let name_map = res[1];
+        let type_map = res[2];
+     // we want to iterate over each entry
+     for(entry of dset) {
+        // and then each query
+        let bval = 1;
+        for(const [col, filter_clause] of Object.entries(cond_obj)) {
+            // and pick out which name we're querying/talking about, ie the display name corresponding to the standardised name
+            let disp = "";
+            
+            for(el of schema) {
+                // console.log(el);
+                if(el.name === col) {
+                    disp = el.display;
+                }
 
-            if(must_order) {
-                if(el.name === col_name_order) {
-                    order_disp = el.display;
-                    // console.log(order_disp);
+                if(must_order) {
+                    if(el.name === col_name_order) {
+                        order_disp = el.display;
+                        // console.log(order_disp);
+                    }
                 }
             }
-        }
 
-        let op_map = {
-            "gt" : (col_name, val_cmp) => {
-                if(entry[col_name] > val_cmp) {
-                    return true;
-                } return false; },
+            let op_map = {
+                "gt" : (col_name, val_cmp) => {
+                    if(entry[col_name] > val_cmp) {
+                        return true;
+                    } return false; },
+                
+                "eq" : (col_name, val_cmp) => {
+                    if(entry[col_name] === val_cmp) {
+                        return true;
+                    } return false;}, 
+                
+                "lt" : (col_name, val_cmp) => {
+                    if(entry[col_name] < val_cmp) {
+                        return true;
+                    } return false; }
+            };
             
-            "eq" : (col_name, val_cmp) => {
-                if(entry[col_name] === val_cmp) {
-                    return true;
-                } return false;}, 
+            let op = Object.keys(filter_clause)[0];
             
-            "lt" : (col_name, val_cmp) => {
-                if(entry[col_name] < val_cmp) {
-                    return true;
-                } return false; }
-        };
-        
-        let op = Object.keys(filter_clause)[0];
-        
-        let val = filter_clause[op];
+            let val = filter_clause[op];
+            // console.log(disp, type_map[name_map[disp]]);
+            let afunc = op_map[op.split(" ").at(-1)];            
+            let cond_eval =  afunc(disp, val);
 
-        let afunc = op_map[op.split(" ").at(-1)];
-        
-        let cond_eval =  afunc(disp, val);
-        
-        // console.log(op.split(" "));
+            if(op.split(" ").length > 1) {
+                // then we assume command is "not"
+                cond_eval = !cond_eval;
+            }
+            
+            // call function and push if it meets criterion
+            bval *= cond_eval;
 
-        if(op.split(" ").length > 1) {
-            // then we assume command is "not"
-            cond_eval = !cond_eval;
         }
         
-        // call function and push if it meets criterion
-        bval *= cond_eval;
-
+        if(bval) {
+            std_entry = {};
+            for(const [key, val] of Object.entries(entry)) {
+              std_entry[name_map[key]] = normalise(val, type_map[name_map[key]]);  
+            } 
+            filtered_lst.push(std_entry);
+        }
+        
     }
     
-    if(bval) {
-        std_entry = {};
-        for(const [key, val] of Object.entries(entry)) {
-          std_entry[name_map[key]] = normalise(val, type_map[name_map[key]]);  
-        } 
-        filtered_lst.push(std_entry);
-    }
+     if(must_order) {
+        filtered_lst.sort((a, b) => {
+            let factor = type_ordering === "asc" ? 1 : -1;
+            return factor * (a[col_name_order] - b[col_name_order]);
+        });
+    }  
     
+    if("head" in req) {
+        resolve(filtered_lst.slice(0,req["head"]));
+    } else {
+        resolve(filtered_lst);
+    }
+
+
+ });
+ });
+});
 }
 
 
- if(must_order) {
-    filtered_lst.sort((a, b) => {
-        let factor = type_ordering === "asc" ? 1 : -1;
-        return factor * (a[col_name_order] - b[col_name_order]);
-    });
-}  
-
-if("head" in req) {
-    response.send(filtered_lst.slice(0,req["head"]));
-} else {
-    response.send(filtered_lst);
-}
-
-
+app.post("/data", (request, response) => {
+    let req = JSON.parse(request["body"]);
+    query_dataset(req).then(filtered_vals => {
+        response.send(filtered_vals);
+    }); 
 });
-});
-
-
-});
-
 
 
 app.listen(port, () => {
-    // console.log("Server running on port: ", port);
-// });
-        let request = {
-            "body" : {
-            "where" : {"bonus" : {"eq" : true}, 
+        // toy example
+        let test_query = {
+            "where" : {
+                    "bonus" : {"eq" : true}, 
                     "availableBikes" : {"gt" : 23},
                     "stationId" : {"not eq" : 98}
                     },
             "orderBy" : {"availableBikes" : "desc"},
-
             "head" : 3
-        }};
+        };
 
-        // conditional object, ie where clause
-        get_dataset().then(dset => {
-            let req = request["body"];
-        const cond_obj = req["where"];
-        let must_order = false;
-        let ordering = "";
-        let col_name_order = "";
-        let type_ordering = "";
-        let order_disp = "";
-
-        if("orderBy" in req) {
-            must_order = true;
-            ordering = req["orderBy"];
-            col_name_order = Object.keys(ordering)[0];
-            type_ordering = ordering[col_name_order];
-        }
-
-        filtered_lst = [];
-
-        create_schema().then(res => {
-            let schema = res[0];
-            let name_map = res[1];
-            let type_map = res[2];
-         // we want to iterate over each entry
-         for(entry of dset) {
-            // and then each query
-            let bval = 1;
-            for(const [col, filter_clause] of Object.entries(cond_obj)) {
-                // and pick out which name we're querying/talking about, ie the display name corresponding to the standardised name
-                let disp = "";
-                
-                for(el of schema) {
-                    // console.log(el);
-                    if(el.name === col) {
-                        disp = el.display;
-                    }
-
-                    if(must_order) {
-                        if(el.name === col_name_order) {
-                            order_disp = el.display;
-                            // console.log(order_disp);
-                        }
-                    }
-                }
-
-                let op_map = {
-                    "gt" : (col_name, val_cmp) => {
-                        if(entry[col_name] > val_cmp) {
-                            return true;
-                        } return false; },
-                    
-                    "eq" : (col_name, val_cmp) => {
-                        if(entry[col_name] === val_cmp) {
-                            return true;
-                        } return false;}, 
-                    
-                    "lt" : (col_name, val_cmp) => {
-                        if(entry[col_name] < val_cmp) {
-                            return true;
-                        } return false; }
-                };
-                
-                let op = Object.keys(filter_clause)[0];
-                
-                let val = filter_clause[op];
-
-                let afunc = op_map[op.split(" ").at(-1)];
-                
-                let cond_eval =  afunc(disp, val);
-                
-                // console.log(op.split(" "));
-
-                if(op.split(" ").length > 1) {
-                    // then we assume command is "not"
-                    cond_eval = !cond_eval;
-                }
-                
-                // call function and push if it meets criterion
-                bval *= cond_eval;
-
-            }
-            
-            if(bval) {
-                std_entry = {};
-                for(const [key, val] of Object.entries(entry)) {
-                  std_entry[name_map[key]] = normalise(val, type_map[name_map[key]]);  
-                } 
-                filtered_lst.push(std_entry);
-            }
-            
-        }
-
+        let request = {
+            "method" : "POST",
+            "body" : JSON.stringify(test_query)
+        };
         
-         if(must_order) {
-            filtered_lst.sort((a, b) => {
-                let factor = type_ordering === "asc" ? 1 : -1;
-                return factor * (a[col_name_order] - b[col_name_order]);
-            });
-        }  
-        
-        if("head" in req) {
-            console.log(filtered_lst.slice(0,req["head"]));
-        } else {
-            console.log(filtered_lst);
-        }
-
-
-     });
-     });
-
-
+        let req = JSON.parse(request["body"]);
+        query_dataset(req).then(filtered_vals => {
+            console.log(filtered_vals);
+        });
 });
