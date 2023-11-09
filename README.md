@@ -12,7 +12,7 @@ challenge
 - First a list of key:value pairs consisting of field names and their respective types is created. This is done to ensure we create the most optimum representation/don't prematurely assign types. Then we iterate over them to create the full
   schema, ie the Array of Field objects.
 
-  -/data: POST request. Fetch dataset. Iterate over each entry, then iterate over each query.
+  - /data: POST request. Fetch dataset. Iterate over each entry, then iterate over each query.
   - Use a function-table to map each query operation to a bool function. Evaluate the bool function on the specified arguments. If NOT operator used, prepending the actual operation, ie "not eq", then the bool function return value
     is negated.
   -  For sorting, the syntax is {orderBy: {fieldName: type}} where type is in ["asc", "desc"]. I use Array.sort with custom comparison function relying on signage of a-b to determine position of a relative to b. If descending, then multiply by -1 to reverse signage thus order.
@@ -21,4 +21,7 @@ challenge
   -  Use the head attribute to specify how many entries are returned: {head : num}, ie slice list up to that index.
 
     I would add more optimisations to make this cleaner/quicker/avoid recomputing things, e.g. store dataset + schema instead of recomputing schema each time /data is called. I also haven't gotten a chance to implement the
-  last three extra features. If I stored the dataset using a JSON object whereby the key was the station ID and the value being the rest of the object, I could easily write code that efficiently fetches the corresponding station from ID and then it's a matter of simply returning/updating the fields/deleting by key.  
+  last three extra features. If I stored the dataset using a JSON object whereby the key was the station ID and the value being the rest of the object, I could easily write code that efficiently fetches the corresponding station from ID and then it's a matter of simply returning/updating the fields/deleting by key.
+
+  # How to run? 
+  Run node index.js to start the server.
