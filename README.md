@@ -23,5 +23,9 @@ challenge
     I would add more optimisations to make this cleaner/quicker/avoid recomputing things, e.g. store dataset + schema instead of recomputing schema each time /data is called. I also haven't gotten a chance to implement the
   last three extra features. If I stored the dataset using a JSON object whereby the key was the station ID and the value being the rest of the object, I could easily write code that efficiently fetches the corresponding station from ID and then it's a matter of simply returning/updating the fields/deleting by key.
 
+Also, I didn't get a chance to do the final three extra features, but they are
+trivial if we reformat the dataset into an object whose keys are station IDs and whose values are the data entries
+for that station. Then we can retrieve through keying, or delete/modify etc.
+
   # How to run? 
   Run node index.js to start the server.
