@@ -153,7 +153,6 @@ function create_schema() {
         
 }
 
-
 app.get("/schema", (req, res) => {
     create_schema().then((result) => {
         res.send(result[0]);
